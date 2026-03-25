@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", monospace;
+
+  --color-bg: #0a0e1a;
+  --color-surface: #111827;
+  --color-surface-2: #1a2236;
+  --color-surface-3: #222d45;
+  --color-border: #1e2a42;
+  --color-border-light: #2a3a58;
+  --color-text: #e2e8f0;
+  --color-text-muted: #7a8baa;
+  --color-text-dim: #4a5a78;
+  --color-accent: #6366f1;
+  --color-accent-hover: #818cf8;
+  --color-accent-dim: rgba(99, 102, 241, 0.12);
+  --color-green: #22c55e;
+  --color-green-dim: rgba(34, 197, 94, 0.12);
+  --color-red: #ef4444;
+  --color-red-dim: rgba(239, 68, 68, 0.12);
+  --color-amber: #f59e0b;
+  --color-amber-dim: rgba(245, 158, 11, 0.12);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Drag region for Electron title bar */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-light);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-dim);
+}
+
+/* Markdown prose in chat */
+.chat-prose {
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+.chat-prose p { margin-bottom: 0.5em; }
+.chat-prose p:last-child { margin-bottom: 0; }
+.chat-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  background: var(--color-surface-3);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+}
+.chat-prose pre {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.75em 1em;
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+.chat-prose pre code {
+  background: none;
+  padding: 0;
+}
+.chat-prose ul, .chat-prose ol {
+  padding-left: 1.25em;
+  margin: 0.4em 0;
+}
+.chat-prose li { margin: 0.15em 0; }
+.chat-prose h1, .chat-prose h2, .chat-prose h3 {
+  font-weight: 600;
+  margin-top: 0.75em;
+  margin-bottom: 0.35em;
+}
+.chat-prose h1 { font-size: 1.15em; }
+.chat-prose h2 { font-size: 1.05em; }
+.chat-prose h3 { font-size: 0.95em; }
+.chat-prose blockquote {
+  border-left: 2px solid var(--color-accent);
+  padding-left: 0.75em;
+  color: var(--color-text-muted);
+  margin: 0.5em 0;
+}
+
+/* Input focus ring */
+.input-ring:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-accent-dim), 0 0 0 3px var(--color-accent);
+}
+
+/* Typing animation */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.cursor-blink::after {
+  content: "▊";
+  animation: blink 1s step-end infinite;
+  color: var(--color-accent);
+  margin-left: 1px;
+}
+
+/* Pulse for status dot */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
+}
