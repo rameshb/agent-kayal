@@ -52,7 +52,7 @@ export class AgentServer extends EventEmitter {
   private sessionStore: SessionStore | null = null;
 
   // Graph API components
-  private graphAuth: GraphAuth;
+  private graphAuth: GraphAuth | null = null;
   private graphPoller: GraphPoller | null = null;
   private graphReplier: GraphReplier | null = null;
 
@@ -66,32 +66,36 @@ export class AgentServer extends EventEmitter {
     this.config = loadConfig();
     this.log = createLogger(this.config.logLevel);
 
-    // Initialize auth (doesn't connect yet)
-    this.graphAuth = new GraphAuth({
-      clientId: this.config.azure.clientId,
-      tenantId: this.config.azure.tenantId,
-      cacheDir: this.config.workspace.cacheDir,
-      logger: this.log,
-    });
+    // Initialize auth only if Azure credentials are configured
+    if (this.config.azure.clientId && this.config.azure.tenantId) {
+      this.graphAuth = new GraphAuth({
+        clientId: this.config.azure.clientId,
+        tenantId: this.config.azure.tenantId,
+        cacheDir: this.config.workspace.cacheDir,
+        logger: this.log,
+      });
 
-    // Forward auth events
-    this.graphAuth.on("device-code", (info) => this.emit("device-code", info));
-    this.graphAuth.on("authenticated", (state) => {
-      this.pushLog({
-        level: "info",
-        msg: `Authenticated as ${state.userName}`,
-        time: Date.now(),
+      // Forward auth events
+      this.graphAuth.on("device-code", (info) => this.emit("device-code", info));
+      this.graphAuth.on("authenticated", (state) => {
+        this.pushLog({
+          level: "info",
+          msg: `Authenticated as ${state.userName}`,
+          time: Date.now(),
+        });
+        this.emit("auth-changed", state);
       });
-      this.emit("auth-changed", state);
-    });
-    this.graphAuth.on("auth-expired", () => {
-      this.pushLog({
-        level: "warn",
-        msg: "Authentication expired, please re-authenticate",
-        time: Date.now(),
+      this.graphAuth.on("auth-expired", () => {
+        this.pushLog({
+          level: "warn",
+          msg: "Authentication expired, please re-authenticate",
+          time: Date.now(),
+        });
+        this.emit("auth-changed", this.graphAuth!.getState());
       });
-      this.emit("auth-changed", this.graphAuth.getState());
-    });
+    } else {
+      this.log.warn("Azure credentials not configured — Teams integration disabled");
+    }
 
     // Initialize middleware
     this.access = new AccessControl({
@@ -114,7 +118,7 @@ export class AgentServer extends EventEmitter {
       port: this.config.server.port,
       provider: this.config.llm.provider,
       model: this.config.llm.model,
-      auth: this.graphAuth.getState(),
+      auth: this.graphAuth?.getState() ?? { authenticated: false },
       polling: this.graphPoller?.isRunning() ?? false,
       watchedChannels: this.graphPoller?.getWatchedChannels().length ?? 0,
     };
@@ -125,7 +129,7 @@ export class AgentServer extends EventEmitter {
   }
 
   getAuthState(): AuthState {
-    return this.graphAuth.getState();
+    return this.graphAuth?.getState() ?? { authenticated: false };
   }
 
   // ─── Authentication ───
@@ -135,6 +139,7 @@ export class AgentServer extends EventEmitter {
    * Returns true if already authenticated.
    */
   async tryAutoAuth(): Promise<boolean> {
+    if (!this.graphAuth) return false;
     return this.graphAuth.trysilent();
   }
 
@@ -144,18 +149,24 @@ export class AgentServer extends EventEmitter {
    * The UI should display the code and URL to the user.
    */
   async startDeviceCodeAuth(): Promise<void> {
+    if (!this.graphAuth) throw new Error("Azure credentials not configured");
     await this.graphAuth.authenticateWithDeviceCode();
   }
 
   async logout(): Promise<void> {
     await this.stopPolling();
-    await this.graphAuth.logout();
-    this.emit("auth-changed", this.graphAuth.getState());
+    if (this.graphAuth) {
+      await this.graphAuth.logout();
+      this.emit("auth-changed", this.graphAuth.getState());
+    }
   }
 
   // ─── Polling ───
 
   async startPolling(): Promise<void> {
+    if (!this.graphAuth) {
+      throw new Error("Azure credentials not configured. Set AZURE_CLIENT_ID and AZURE_TENANT_ID.");
+    }
     if (!this.graphAuth.getState().authenticated) {
       throw new Error("Not authenticated. Sign in first.");
     }
@@ -398,7 +409,7 @@ export class AgentServer extends EventEmitter {
         // ── Auth status ──
         if (url === "/api/auth" && method === "GET") {
           res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify(this.graphAuth.getState()));
+          res.end(JSON.stringify(this.getAuthState()));
           return;
         }
 
@@ -439,7 +450,7 @@ export class AgentServer extends EventEmitter {
               },
             });
 
-            const response = result.toDataStreamResponse({ sendReasoning: true });
+            const response = result.toTextStreamResponse();
             res.writeHead(response.status ?? 200, {
               ...Object.fromEntries(response.headers?.entries() ?? []),
               "Access-Control-Allow-Origin": "*",

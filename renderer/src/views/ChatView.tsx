@@ -175,7 +175,7 @@ export default function ChatView({ status }: ChatViewProps) {
       </div>
 
       {/* Input area */}
-      <div className="shrink-0 border-t border-[var(--color-border)] p-4">
+      <div className="shrink-0 border-t border-[var(--color-border)] px-6 py-4">
         {isAgentDown && (
           <div className="mb-3 px-4 py-2.5 rounded-lg bg-[var(--color-amber-dim)] border border-amber-500/20 text-xs text-[var(--color-amber)]">
             Agent server is not running. Start it from the sidebar to chat.
@@ -196,10 +196,10 @@ export default function ChatView({ status }: ChatViewProps) {
             rows={1}
             className="input-ring w-full resize-none rounded-xl bg-[var(--color-surface-2)] border border-[var(--color-border)]
                        text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-dim)]
-                       pl-4 pr-12 py-3 pb-9 transition-colors
+                       pl-4 pr-12 pt-3 pb-10 transition-colors
                        focus:border-[var(--color-accent)]/40
                        disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ maxHeight: 160, minHeight: 52 }}
+            style={{ maxHeight: 160, minHeight: 56 }}
             onInput={(e) => {
               const el = e.currentTarget;
               el.style.height = "auto";
@@ -215,7 +215,7 @@ export default function ChatView({ status }: ChatViewProps) {
                 type="button"
                 onClick={() => setShowModelPicker(!showModelPicker)}
                 disabled={isAgentDown}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px]
                            text-[var(--color-text-dim)] hover:text-[var(--color-text-muted)]
                            hover:bg-[var(--color-surface-3)] transition-colors
                            disabled:opacity-40 disabled:cursor-not-allowed"

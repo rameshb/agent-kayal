@@ -75,7 +75,7 @@ export default function Sidebar({
       </nav>
 
       {/* ── Status + Controls ── */}
-      <div className="no-drag px-3 pb-4 space-y-3">
+      <div className="no-drag px-3 pb-5 space-y-3">
         {/* Model info */}
         {status && (
           <div className="px-3 py-2.5 rounded-lg bg-[var(--color-surface-2)] border border-[var(--color-border)]">

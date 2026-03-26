@@ -26,8 +26,8 @@ function csvList(key: string): string[] {
 
 export interface AppConfig {
   azure: {
-    clientId: string;
-    tenantId: string;
+    clientId?: string;
+    tenantId?: string;
   };
   agent: {
     name: string;           // Display name for @mention detection
@@ -79,8 +79,8 @@ export function loadConfig(): AppConfig {
 
   return {
     azure: {
-      clientId: required("AZURE_CLIENT_ID"),
-      tenantId: required("AZURE_TENANT_ID"),
+      clientId: process.env.AZURE_CLIENT_ID,
+      tenantId: process.env.AZURE_TENANT_ID,
     },
     agent: {
       name: optional("AGENT_NAME", "Pi Agent"),

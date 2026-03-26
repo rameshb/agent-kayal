@@ -4,7 +4,8 @@ import {
   SessionManager,
   SettingsManager,
 } from "@mariozechner/pi-coding-agent";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import { getModel } from "@mariozechner/pi-ai";
+import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 import type { AppConfig } from "./config.js";
 import type { SessionRef } from "./session-store.js";
 import type { Logger } from "./logger.js";
@@ -52,13 +53,13 @@ export function abortRun(sessionId: string): boolean {
 export class AgentRunner {
   private config: AppConfig;
   private log: Logger;
-  private customTools: AgentTool<any>[];
+  private customTools: ToolDefinition<any, any, any>[];
   private sandboxDir: string | undefined;
 
   constructor(opts: {
     config: AppConfig;
     logger: Logger;
-    customTools?: AgentTool<any>[];
+    customTools?: ToolDefinition<any, any, any>[];
     sandboxDir?: string;
   }) {
     this.config = opts.config;
@@ -100,21 +101,7 @@ export class AgentRunner {
       // The agent's working directory is restricted to the sandbox
       const agentCwd = this.sandboxDir || sessionRef.workspaceDir;
 
-      const settingsManager = new SettingsManager({
-        cwd: agentCwd,
-      });
-
-      // Apply workspace restrictions via settings
-      if (this.sandboxDir) {
-        settingsManager.applyOverrides({
-          // Restrict file operations to the sandbox directory
-          sandbox: {
-            enabled: true,
-            allowedPaths: [agentCwd],
-            forbiddenPaths: [],
-          },
-        });
-      }
+      const settingsManager = SettingsManager.create(agentCwd);
 
       const resourceLoader = new DefaultResourceLoader({
         cwd: agentCwd,
@@ -125,21 +112,22 @@ export class AgentRunner {
 
       await resourceLoader.reload();
 
+      const resolvedModel = (getModel as any)(provider, model);
+
       const { session } = await createAgentSession({
         cwd: agentCwd,
         agentDir: sessionRef.agentDir,
         settingsManager,
         resourceLoader,
-        provider,
-        model,
+        model: resolvedModel,
         // Pass custom tools alongside Pi's built-in tools
         customTools: this.customTools,
-        sessionFile: sessionRef.sessionFile,
       });
 
       // ── Run the agent loop ──
 
-      for await (const event of session.run(prompt, { signal })) {
+      // Subscribe to session events
+      session.subscribe((event: any) => {
         switch (event.type) {
           case "text_delta":
             fullText += event.delta;
@@ -149,7 +137,7 @@ export class AgentRunner {
           case "text_done":
             // A complete text block is ready
             if (onBlockReady) {
-              await onBlockReady(fullText);
+              onBlockReady(fullText);
             }
             break;
 
@@ -172,7 +160,9 @@ export class AgentRunner {
             this.log.error({ error: event.error, runId }, "agent error");
             break;
         }
-      }
+      });
+
+      await session.prompt(prompt);
 
       this.log.info(
         { sessionId: sessionRef.sessionId, toolCallCount, runId },

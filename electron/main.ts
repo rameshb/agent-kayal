@@ -13,7 +13,7 @@ let agentServer: AgentServer | null = null;
 
 const isDev = !app.isPackaged;
 const rendererPath = isDev
-  ? join(import.meta.dirname, "..", "renderer", "dist")
+  ? join(import.meta.dirname, "..", "..", "renderer", "dist")
   : join(process.resourcesPath, "renderer");
 const preloadPath = join(import.meta.dirname, "preload.js");
 

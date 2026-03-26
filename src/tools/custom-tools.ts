@@ -9,7 +9,7 @@
  */
 
 import { Type } from "@mariozechner/pi-ai";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { ToolDefinition } from "@mariozechner/pi-coding-agent";
 
 // ─── Example: HTTP Request tool ───
 
@@ -31,17 +31,18 @@ const httpRequestParams = Type.Object({
   ),
 });
 
-export const httpRequestTool: AgentTool<typeof httpRequestParams> = {
+export const httpRequestTool: ToolDefinition<typeof httpRequestParams> = {
   name: "http_request",
   label: "HTTP Request",
   description:
     "Make an HTTP request to an external API. Use for fetching data, calling REST endpoints, or webhook triggers.",
   parameters: httpRequestParams,
-  execute: async (_toolCallId, params, signal, onUpdate) => {
+  execute: async (_toolCallId, params, signal, onUpdate, _ctx) => {
     onUpdate?.({
       content: [
         { type: "text", text: `Fetching ${params.method || "GET"} ${params.url}...` },
       ],
+      details: {},
     });
 
     try {
@@ -64,11 +65,12 @@ export const httpRequestTool: AgentTool<typeof httpRequestParams> = {
             text: `Status: ${resp.status} ${resp.statusText}\n\n${body.slice(0, 8000)}`,
           },
         ],
+        details: { status: resp.status },
       };
     } catch (err: any) {
       return {
         content: [{ type: "text", text: `Request failed: ${err.message}` }],
-        isError: true,
+        details: { error: err.message },
       };
     }
   },
@@ -85,22 +87,23 @@ const currentTimeParams = Type.Object({
   ),
 });
 
-export const currentTimeTool: AgentTool<typeof currentTimeParams> = {
+export const currentTimeTool: ToolDefinition<typeof currentTimeParams> = {
   name: "current_time",
   label: "Current Time",
   description: "Get the current date and time in a specified timezone.",
   parameters: currentTimeParams,
-  execute: async (_toolCallId, params) => {
+  execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => {
     const tz = params.timezone || "UTC";
     const now = new Date().toLocaleString("en-US", { timeZone: tz });
     return {
       content: [{ type: "text", text: `Current time (${tz}): ${now}` }],
+      details: { timezone: tz, time: now },
     };
   },
 };
 
 // ─── Collect all custom tools ───
 
-export function getCustomTools(): AgentTool<any>[] {
+export function getCustomTools(): ToolDefinition<any, any, any>[] {
   return [httpRequestTool, currentTimeTool];
 }
