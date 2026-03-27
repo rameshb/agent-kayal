@@ -3,6 +3,8 @@ import {
   type DeviceCodeRequest,
   type AuthenticationResult,
   type AccountInfo,
+  type ICachePlugin,
+  type TokenCacheContext,
 } from "@azure/msal-node";
 import { EventEmitter } from "node:events";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
@@ -50,32 +52,31 @@ export class GraphAuth extends EventEmitter {
     const cacheDir = dirname(this.cachePath);
     if (!existsSync(cacheDir)) mkdirSync(cacheDir, { recursive: true });
 
-    // Load cached tokens if present
-    let cachePlugin: any = undefined;
-    if (existsSync(this.cachePath)) {
-      try {
-        const cacheData = readFileSync(this.cachePath, "utf-8");
-        cachePlugin = {
-          beforeCacheAccess: async (context: any) => {
+    // Build cache plugin for token persistence
+    const cachePlugin: ICachePlugin = {
+      beforeCacheAccess: async (context: TokenCacheContext) => {
+        if (existsSync(this.cachePath)) {
+          try {
+            const cacheData = readFileSync(this.cachePath, "utf-8");
             context.tokenCache.deserialize(cacheData);
-          },
-          afterCacheAccess: async (context: any) => {
-            if (context.cacheHasChanged) {
-              writeFileSync(this.cachePath, context.tokenCache.serialize());
-            }
-          },
-        };
-      } catch {
-        this.log.warn("failed to load token cache, will re-authenticate");
-      }
-    }
+          } catch {
+            this.log.warn("failed to load token cache, will re-authenticate");
+          }
+        }
+      },
+      afterCacheAccess: async (context: TokenCacheContext) => {
+        if (context.cacheHasChanged) {
+          writeFileSync(this.cachePath, context.tokenCache.serialize());
+        }
+      },
+    };
 
     this.pca = new PublicClientApplication({
       auth: {
         clientId: opts.clientId,
         authority: `https://login.microsoftonline.com/${opts.tenantId}`,
       },
-      cache: cachePlugin ? { cachePlugin } : undefined,
+      cache: { cachePlugin },
     });
   }
 
@@ -85,8 +86,7 @@ export class GraphAuth extends EventEmitter {
    */
   async trysilent(): Promise<boolean> {
     try {
-      const cache = this.pca.getTokenCache();
-      const accounts = await cache.getAllAccounts();
+      const accounts = await this.pca.getAllAccounts();
 
       if (accounts.length === 0) return false;
 
@@ -179,9 +179,8 @@ export class GraphAuth extends EventEmitter {
   }
 
   async logout(): Promise<void> {
-    const cache = this.pca.getTokenCache();
     if (this.account) {
-      await cache.removeAccount(this.account);
+      await this.pca.signOut({ account: this.account });
     }
     this.account = null;
     try {

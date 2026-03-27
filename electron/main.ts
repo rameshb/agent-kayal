@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell } from "electron";
 import { join } from "node:path";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { AgentServer } from "../src/server.js";
 import type { AgentStatus, LogEntry } from "../src/server.js";
 
@@ -16,6 +17,36 @@ const rendererPath = isDev
   ? join(import.meta.dirname, "..", "..", "renderer", "dist")
   : join(process.resourcesPath, "renderer");
 const preloadPath = join(import.meta.dirname, "preload.js");
+
+// ─── Settings persistence ───
+
+function getSettingsPath(): string {
+  const dir = app.getPath("userData");
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  return join(dir, "agent-settings.json");
+}
+
+function loadSettings(): Record<string, string> {
+  const p = getSettingsPath();
+  if (!existsSync(p)) return {};
+  try {
+    return JSON.parse(readFileSync(p, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+function saveSettings(settings: Record<string, string>): void {
+  writeFileSync(getSettingsPath(), JSON.stringify(settings, null, 2));
+}
+
+/** Apply saved settings into process.env so config.ts picks them up */
+function applySettingsToEnv(): void {
+  const settings = loadSettings();
+  for (const [key, value] of Object.entries(settings)) {
+    if (value) process.env[key] = value;
+  }
+}
 
 // ─── Helpers ───
 
@@ -58,28 +89,24 @@ function createWindow() {
 
 // ─── Tray ───
 
+function updateTrayMenu() {
+  if (!tray) return;
+  const s = agentServer?.getStatus();
+  const ctx = Menu.buildFromTemplate([
+    { label: `Pi Agent${s?.polling ? " ● Watching" : s?.running ? " ● Server" : " ○ Off"}`, enabled: false },
+    { type: "separator" },
+    { label: "Show Dashboard", click: () => { mainWindow?.show(); mainWindow?.focus(); } },
+    { type: "separator" },
+    { label: "Quit", click: async () => { await agentServer?.stop(); app.quit(); } },
+  ]);
+  tray.setContextMenu(ctx);
+}
+
 function createTray() {
   const icon = nativeImage.createEmpty();
   tray = new Tray(icon);
   tray.setTitle("🤖");
   tray.setToolTip("Pi Teams Agent");
-
-  const updateTrayMenu = () => {
-    const s = agentServer?.getStatus();
-    const ctx = Menu.buildFromTemplate([
-      { label: `Pi Agent${s?.polling ? " ● Watching" : s?.running ? " ● Server" : " ○ Off"}`, enabled: false },
-      { type: "separator" },
-      { label: "Show Dashboard", click: () => { mainWindow?.show(); mainWindow?.focus(); } },
-      { type: "separator" },
-      { label: "Quit", click: async () => { await agentServer?.stop(); app.quit(); } },
-    ]);
-    tray?.setContextMenu(ctx);
-  };
-
-  agentServer?.on("started", updateTrayMenu);
-  agentServer?.on("stopped", updateTrayMenu);
-  agentServer?.on("polling-started", updateTrayMenu);
-  agentServer?.on("polling-stopped", updateTrayMenu);
   updateTrayMenu();
 }
 
@@ -150,22 +177,59 @@ function setupIPC() {
     return r;
   });
 
+  // ── Settings ──
+  ipcMain.handle("agent:fetch-models", async (_e, provider: string, apiKey: string) => {
+    return AgentServer.fetchProviderModels(provider, apiKey);
+  });
+  ipcMain.handle("agent:get-settings", () => loadSettings());
+  ipcMain.handle("agent:save-settings", async (_e, settings: Record<string, string>) => {
+    saveSettings(settings);
+    // Apply to current process env
+    for (const [key, value] of Object.entries(settings)) {
+      if (value) process.env[key] = value;
+      else delete process.env[key];
+    }
+    // Restart the agent server so the new config takes effect
+    try {
+      await agentServer?.stop();
+      agentServer = new AgentServer();
+      await agentServer.start();
+      // Re-wire event forwarding to the new server instance
+      rewireEvents();
+      mainWindow?.webContents.send("agent:status-changed", agentServer.getStatus());
+    } catch (err: any) {
+      console.error("Failed to restart after settings change:", err.message);
+    }
+    return { ok: true };
+  });
+  ipcMain.handle("agent:has-settings", () => {
+    const s = loadSettings();
+    return Object.keys(s).length > 0;
+  });
+
   // ── Event forwarding ──
-  agentServer?.on("log", (entry: LogEntry) => mainWindow?.webContents.send("agent:log-entry", entry));
-  agentServer?.on("started", (s: AgentStatus) => mainWindow?.webContents.send("agent:status-changed", s));
-  agentServer?.on("stopped", () => mainWindow?.webContents.send("agent:status-changed", agentServer?.getStatus()));
-  agentServer?.on("device-code", (info: any) => {
+  rewireEvents();
+}
+
+function rewireEvents() {
+  if (!agentServer) return;
+  agentServer.removeAllListeners();
+  agentServer.on("log", (entry: LogEntry) => mainWindow?.webContents.send("agent:log-entry", entry));
+  agentServer.on("started", (s: AgentStatus) => { mainWindow?.webContents.send("agent:status-changed", s); updateTrayMenu(); });
+  agentServer.on("stopped", () => { mainWindow?.webContents.send("agent:status-changed", agentServer?.getStatus()); updateTrayMenu(); });
+  agentServer.on("device-code", (info: any) => {
     mainWindow?.webContents.send("agent:device-code", info);
     mainWindow?.show(); mainWindow?.focus();
   });
-  agentServer?.on("auth-changed", (state: any) => mainWindow?.webContents.send("agent:auth-changed", state));
-  agentServer?.on("polling-started", () => mainWindow?.webContents.send("agent:status-changed", agentServer?.getStatus()));
-  agentServer?.on("polling-stopped", () => mainWindow?.webContents.send("agent:status-changed", agentServer?.getStatus()));
+  agentServer.on("auth-changed", (state: any) => mainWindow?.webContents.send("agent:auth-changed", state));
+  agentServer.on("polling-started", () => { mainWindow?.webContents.send("agent:status-changed", agentServer?.getStatus()); updateTrayMenu(); });
+  agentServer.on("polling-stopped", () => { mainWindow?.webContents.send("agent:status-changed", agentServer?.getStatus()); updateTrayMenu(); });
 }
 
 // ─── App Lifecycle ───
 
 app.whenReady().then(async () => {
+  applySettingsToEnv();
   agentServer = new AgentServer();
   setupIPC();
   createWindow();

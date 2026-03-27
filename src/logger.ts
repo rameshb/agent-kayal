@@ -1,4 +1,4 @@
-import pino from "pino";
+import pino, { type Logger as PinoLogger } from "pino";
 
 export function createLogger(level: string = "info") {
   return pino({
@@ -10,4 +10,4 @@ export function createLogger(level: string = "info") {
   });
 }
 
-export type Logger = pino.Logger;
+export type Logger = PinoLogger;

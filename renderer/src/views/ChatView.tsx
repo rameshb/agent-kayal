@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
+import { TextStreamChatTransport } from "ai";
 import {
   SendHorizontal,
   StopCircle,
@@ -31,10 +32,20 @@ export default function ChatView({ status }: ChatViewProps) {
 
   const port = status?.port ?? 3978;
 
-  const { messages, sendMessage, isLoading, stop, reload, error } = useChat({
-    api: `http://localhost:${port}/api/chat`,
-    body: selectedModel ? { model: selectedModel } : undefined,
+  const transport = useMemo(
+    () =>
+      new TextStreamChatTransport({
+        api: `http://localhost:${port}/api/chat`,
+        body: selectedModel ? { model: selectedModel } : undefined,
+      }),
+    [port, selectedModel]
+  );
+
+  const { messages, sendMessage, status: chatStatus, stop, regenerate, error } = useChat({
+    transport,
   });
+
+  const isLoading = chatStatus === "streaming" || chatStatus === "submitted";
 
   // Fetch available models when agent starts
   useEffect(() => {
@@ -132,7 +143,7 @@ export default function ChatView({ status }: ChatViewProps) {
         <div className="no-drag flex items-center gap-1">
           {messages.length > 0 && (
             <button
-              onClick={() => reload()}
+              onClick={() => regenerate()}
               className="p-1.5 rounded-md text-[var(--color-text-dim)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-2)] transition-colors"
               title="Regenerate last response"
             >

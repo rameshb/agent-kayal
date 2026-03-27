@@ -6,6 +6,7 @@ import {
   Square,
   Zap,
   Package,
+  Settings,
 } from "lucide-react";
 import type { View, AgentStatus } from "../App";
 
@@ -22,6 +23,7 @@ const navItems: { id: View; label: string; icon: typeof MessageSquare }[] = [
   { id: "sessions", label: "Sessions", icon: LayoutGrid },
   { id: "packages", label: "Packages", icon: Package },
   { id: "dashboard", label: "Dashboard", icon: Activity },
+  { id: "settings", label: "Settings", icon: Settings },
 ];
 
 export default function Sidebar({

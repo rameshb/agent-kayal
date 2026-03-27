@@ -4,8 +4,9 @@ import ChatView from "./views/ChatView";
 import SessionsView from "./views/SessionsView";
 import DashboardView from "./views/DashboardView";
 import PackagesView from "./views/PackagesView";
+import SettingsView from "./views/SettingsView";
 
-export type View = "chat" | "sessions" | "packages" | "dashboard";
+export type View = "chat" | "sessions" | "packages" | "dashboard" | "settings";
 
 export interface AgentStatus {
   running: boolean;
@@ -29,6 +30,10 @@ declare global {
       getPackages: () => Promise<any[]>;
       installPackage: (source: string) => Promise<any>;
       removePackage: (name: string) => Promise<void>;
+      getSettings: () => Promise<Record<string, string>>;
+      saveSettings: (settings: Record<string, string>) => Promise<{ ok: boolean }>;
+      hasSettings: () => Promise<boolean>;
+      fetchModels: (provider: string, apiKey: string) => Promise<{ id: string; label: string; provider: string }[]>;
       onLogEntry: (cb: (entry: any) => void) => () => void;
       onStatusChanged: (cb: (status: AgentStatus) => void) => () => void;
     };
@@ -38,10 +43,19 @@ declare global {
 export default function App() {
   const [view, setView] = useState<View>("chat");
   const [status, setStatus] = useState<AgentStatus | null>(null);
+  const [isFirstLaunch, setIsFirstLaunch] = useState(false);
 
   useEffect(() => {
     // Initial status fetch
     window.agentAPI?.getStatus().then(setStatus);
+
+    // Check if this is the first launch (no settings saved yet)
+    window.agentAPI?.hasSettings().then((has) => {
+      if (!has) {
+        setIsFirstLaunch(true);
+        setView("settings");
+      }
+    });
 
     // Listen for status changes
     const unsub = window.agentAPI?.onStatusChanged((s) => setStatus(s));
@@ -80,6 +94,15 @@ export default function App() {
         {view === "sessions" && <SessionsView />}
         {view === "packages" && <PackagesView />}
         {view === "dashboard" && <DashboardView status={status} />}
+        {view === "settings" && (
+          <SettingsView
+            isFirstLaunch={isFirstLaunch}
+            onSetupComplete={() => {
+              setIsFirstLaunch(false);
+              setView("chat");
+            }}
+          />
+        )}
       </main>
     </div>
   );

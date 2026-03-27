@@ -27,6 +27,12 @@ contextBridge.exposeInMainWorld("agentAPI", {
   installPackage: (source: string) => ipcRenderer.invoke("agent:install-package", source),
   removePackage: (name: string) => ipcRenderer.invoke("agent:remove-package", name),
 
+  // ── Settings ──
+  getSettings: () => ipcRenderer.invoke("agent:get-settings"),
+  saveSettings: (settings: Record<string, string>) => ipcRenderer.invoke("agent:save-settings", settings),
+  hasSettings: () => ipcRenderer.invoke("agent:has-settings"),
+  fetchModels: (provider: string, apiKey: string) => ipcRenderer.invoke("agent:fetch-models", provider, apiKey),
+
   // ── Events ──
   onLogEntry: (cb: (entry: any) => void) => {
     const h = (_e: any, entry: any) => cb(entry);

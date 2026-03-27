@@ -19,6 +19,14 @@ import { AccessControl } from "./middleware/access-control.js";
 import { RateLimiter } from "./middleware/rate-limiter.js";
 import { getCustomTools } from "./tools/custom-tools.js";
 
+// ─── Helpers ───
+
+function formatModelName(name: string): string {
+  return name
+    .replace(/-\d{8}$/, "")          // strip date suffix
+    .replace(/([a-z])([A-Z])/g, "$1 $2"); // camelCase → spaces
+}
+
 // ─── Types ───
 
 export interface AgentStatus {
@@ -307,29 +315,144 @@ export class AgentServer extends EventEmitter {
     throw new Error(`No API key for provider "${provider}"`);
   }
 
-  private getAvailableModels() {
+  private async getAvailableModels() {
     const models: { id: string; label: string; provider: string }[] = [];
+    const fetches: Promise<void>[] = [];
+
     if (this.config.llm.anthropicKey) {
-      models.push(
-        { id: "anthropic/claude-sonnet-4-20250514", label: "Claude Sonnet 4", provider: "anthropic" },
-        { id: "anthropic/claude-opus-4-20250918", label: "Claude Opus 4", provider: "anthropic" },
-        { id: "anthropic/claude-haiku-4-5-20251001", label: "Claude Haiku 4.5", provider: "anthropic" },
+      fetches.push(
+        AgentServer.fetchProviderModels("anthropic", this.config.llm.anthropicKey)
+          .then((m) => { models.push(...m); })
       );
     }
     if (this.config.llm.openaiKey) {
-      models.push(
-        { id: "openai/gpt-4o", label: "GPT-4o", provider: "openai" },
-        { id: "openai/gpt-4o-mini", label: "GPT-4o Mini", provider: "openai" },
+      fetches.push(
+        AgentServer.fetchProviderModels("openai", this.config.llm.openaiKey)
+          .then((m) => { models.push(...m); })
       );
     }
     if (this.config.llm.openrouterKey) {
-      models.push(
-        { id: "openrouter/anthropic/claude-sonnet-4", label: "Sonnet 4 (OR)", provider: "openrouter" },
-        { id: "openrouter/google/gemini-2.5-flash", label: "Gemini 2.5 Flash (OR)", provider: "openrouter" },
-        { id: "openrouter/deepseek/deepseek-r1", label: "DeepSeek R1 (OR)", provider: "openrouter" },
+      fetches.push(
+        AgentServer.fetchProviderModels("openrouter", this.config.llm.openrouterKey)
+          .then((m) => { models.push(...m); })
       );
     }
+
+    await Promise.all(fetches);
     return models;
+  }
+
+  /**
+   * Fetch models from a provider API given a key.
+   * Usable both internally and from IPC for the settings UI.
+   */
+  private static FALLBACK_MODELS: Record<string, { id: string; label: string; provider: string }[]> = {
+    anthropic: [
+      { id: "anthropic/claude-opus-4-20250918", label: "Claude Opus 4", provider: "anthropic" },
+      { id: "anthropic/claude-sonnet-4-20250514", label: "Claude Sonnet 4", provider: "anthropic" },
+      { id: "anthropic/claude-haiku-4-5-20251001", label: "Claude Haiku 4.5", provider: "anthropic" },
+      { id: "anthropic/claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet", provider: "anthropic" },
+      { id: "anthropic/claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku", provider: "anthropic" },
+      { id: "anthropic/claude-3-opus-20240229", label: "Claude 3 Opus", provider: "anthropic" },
+    ],
+    openai: [
+      { id: "openai/gpt-4.1", label: "GPT-4.1", provider: "openai" },
+      { id: "openai/gpt-4.1-mini", label: "GPT-4.1 Mini", provider: "openai" },
+      { id: "openai/gpt-4.1-nano", label: "GPT-4.1 Nano", provider: "openai" },
+      { id: "openai/gpt-4o", label: "GPT-4o", provider: "openai" },
+      { id: "openai/gpt-4o-mini", label: "GPT-4o Mini", provider: "openai" },
+      { id: "openai/o4-mini", label: "o4-mini", provider: "openai" },
+      { id: "openai/o3", label: "o3", provider: "openai" },
+      { id: "openai/o3-mini", label: "o3-mini", provider: "openai" },
+      { id: "openai/o1", label: "o1", provider: "openai" },
+      { id: "openai/o1-mini", label: "o1-mini", provider: "openai" },
+      { id: "openai/gpt-4-turbo", label: "GPT-4 Turbo", provider: "openai" },
+      { id: "openai/gpt-3.5-turbo", label: "GPT-3.5 Turbo", provider: "openai" },
+    ],
+    openrouter: [
+      { id: "openrouter/anthropic/claude-sonnet-4", label: "Claude Sonnet 4 (OR)", provider: "openrouter" },
+      { id: "openrouter/anthropic/claude-opus-4", label: "Claude Opus 4 (OR)", provider: "openrouter" },
+      { id: "openrouter/openai/gpt-4o", label: "GPT-4o (OR)", provider: "openrouter" },
+      { id: "openrouter/openai/gpt-4.1", label: "GPT-4.1 (OR)", provider: "openrouter" },
+      { id: "openrouter/google/gemini-2.5-pro", label: "Gemini 2.5 Pro (OR)", provider: "openrouter" },
+      { id: "openrouter/google/gemini-2.5-flash", label: "Gemini 2.5 Flash (OR)", provider: "openrouter" },
+      { id: "openrouter/deepseek/deepseek-r1", label: "DeepSeek R1 (OR)", provider: "openrouter" },
+      { id: "openrouter/meta-llama/llama-4-maverick", label: "Llama 4 Maverick (OR)", provider: "openrouter" },
+    ],
+  };
+
+  static async fetchProviderModels(
+    provider: string,
+    apiKey: string,
+  ): Promise<{ id: string; label: string; provider: string }[]> {
+    const fallback = AgentServer.FALLBACK_MODELS[provider] || [];
+    try {
+      if (provider === "anthropic") {
+        const res = await fetch("https://api.anthropic.com/v1/models?limit=100", {
+          headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+        });
+        if (!res.ok) return fallback;
+        const data = await res.json() as any;
+        const items: any[] = data.data || [];
+        const fetched = items
+          .filter((m: any) => m.id && !m.id.includes("@"))
+          .sort((a: any, b: any) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))
+          .map((m: any) => ({
+            id: `anthropic/${m.id}`,
+            label: formatModelName(m.display_name || m.id),
+            provider: "anthropic",
+          }));
+        return fetched.length > 0 ? fetched : fallback;
+      }
+
+      if (provider === "openai") {
+        const res = await fetch("https://api.openai.com/v1/models", {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        if (!res.ok) return fallback;
+        const data = await res.json() as any;
+        const items: any[] = data.data || [];
+        const chatPrefixes = ["gpt-4", "gpt-3.5", "o1", "o3", "o4"];
+        const excludePatterns = ["realtime", "audio", "tts", "transcribe", "search", "instruct", "diarize"];
+        const fetched = items
+          .filter((m: any) =>
+            chatPrefixes.some((p) => m.id.startsWith(p)) &&
+            !excludePatterns.some((e) => m.id.includes(e))
+          )
+          .sort((a: any, b: any) => (b.created ?? 0) - (a.created ?? 0))
+          .map((m: any) => ({
+            id: `openai/${m.id}`,
+            label: m.id,
+            provider: "openai",
+          }));
+        return fetched.length > 0 ? fetched : fallback;
+      }
+
+      if (provider === "openrouter") {
+        const res = await fetch("https://openrouter.ai/api/v1/models", {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        if (!res.ok) return fallback;
+        const data = await res.json() as any;
+        const items: any[] = data.data || [];
+        const fetched = items
+          .sort((a: any, b: any) => (b.created ?? 0) - (a.created ?? 0))
+          .slice(0, 50)
+          .map((m: any) => ({
+            id: `openrouter/${m.id}`,
+            label: m.name || m.id,
+            provider: "openrouter",
+          }));
+        return fetched.length > 0 ? fetched : fallback;
+      }
+
+      return fallback;
+    } catch {
+      return fallback;
+    }
   }
 
   // ─── Log buffer ───
@@ -415,8 +538,14 @@ export class AgentServer extends EventEmitter {
 
         // ── Available models ──
         if (url === "/api/models" && method === "GET") {
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify(this.getAvailableModels()));
+          try {
+            const models = await this.getAvailableModels();
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify(models));
+          } catch {
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end("[]");
+          }
           return;
         }
 
@@ -450,20 +579,46 @@ export class AgentServer extends EventEmitter {
               },
             });
 
-            const response = result.toTextStreamResponse();
-            res.writeHead(response.status ?? 200, {
-              ...Object.fromEntries(response.headers?.entries() ?? []),
-              "Access-Control-Allow-Origin": "*",
-            });
-            if (response.body) {
-              const reader = (response.body as ReadableStream).getReader();
-              const pump = async () => { while (true) { const { done, value } = await reader.read(); if (done) break; res.write(value); } res.end(); };
-              pump().catch(() => res.end());
-            } else { res.end(); }
+            // Consume the full text to catch API errors early (e.g. invalid key)
+            // before committing to a streaming response
+            try {
+              const response = result.toTextStreamResponse();
+              res.writeHead(response.status ?? 200, {
+                ...Object.fromEntries(response.headers?.entries() ?? []),
+                "Access-Control-Allow-Origin": "*",
+              });
+              if (response.body) {
+                const reader = (response.body as ReadableStream).getReader();
+                let hasWritten = false;
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  hasWritten = true;
+                  res.write(value);
+                }
+                if (!hasWritten) {
+                  // Stream was empty — likely an API error that didn't throw
+                  this.pushLog({ level: "warn", msg: "Chat stream returned empty — check your API key and model", time: Date.now() });
+                }
+                res.end();
+              } else { res.end(); }
+            } catch (streamErr: any) {
+              const msg = streamErr.message || "Stream error";
+              this.log.error({ error: msg }, "chat stream error during read");
+              this.pushLog({ level: "error", msg: `Chat error: ${msg}`, time: Date.now() });
+              if (!res.headersSent) {
+                res.writeHead(500, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+                res.end(JSON.stringify({ error: msg }));
+              } else {
+                // Headers already sent — write error as text into the stream so the client sees it
+                res.write(`\n\n[Error: ${msg}]`);
+                res.end();
+              }
+            }
           } catch (err: any) {
             this.log.error({ error: err.message }, "chat stream failed");
             this.pushLog({ level: "error", msg: `Chat error: ${err.message}`, time: Date.now() });
-            if (!res.headersSent) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: err.message })); }
+            if (!res.headersSent) { res.writeHead(500, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }); res.end(JSON.stringify({ error: err.message })); }
           }
           return;
         }
